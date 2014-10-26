@@ -1,0 +1,168 @@
+---
+title: "Machine Learning Project"
+author: "Bento Collares"
+date: "Friday, October 24, 2014"
+output: html_document
+---
+
+## Loading data
+
+#### First we set the workspace to be the folder wih the downloaded data set and load the required packages 
+
+
+````{r Loading data, results="hide", cache=TRUE}
+
+
+setwd("C:/R workspace/machine learning")
+pml_train = read.csv("pml-training.csv")
+pml_test = read.csv("pml-testing.csv")
+
+
+````
+
+````{r}
+
+library(caret)
+
+````
+
+#### Then we split the training pml_train data into a testing set and a training set.
+#### Since the pml_train data set is large, we'll set "p" to be 0.9.
+
+
+````{r split, results='hide'}
+
+set.seed(1323)
+inTrain = createDataPartition(pml_train$classe, p = 0.9, list = FALSE)
+training = pml_train[inTrain,]
+testing = pml_train[-inTrain,]
+
+````
+
+
+##Exploratory analysis and pre-Processing
+
+
+#### The next obvious step is choosing a viable number of variables to fit the prediction model.
+#### We start by removing the columns with no measurements (related to time or user name).
+
+````{r Pre-process1, results='hide'}
+
+names(training)
+
+training = training[,-1:-7]
+testing = testing[,-1:-7]
+````
+
+
+#### Then we remove columns with "NA" values and empty space values.
+
+````{r Pre-process2}
+
+
+toBeRemoved = c()
+for(i in 1:dim(training)[2]){
+    if( anyNA(training[,i])){
+        toBeRemoved = c(toBeRemoved, i)
+    }
+    else if(training[1,i] == ""){
+        toBeRemoved = c(toBeRemoved, i)
+    }
+
+}
+
+
+training = training[, -toBeRemoved]
+testing = testing[, -toBeRemoved]
+
+
+
+````
+
+#### Next we get a reasonable number of variables "n" and get the "n" variables with larger variance,
+#### plus the class variable, which we will try to predict using the other variables.
+
+````{r Pre-process3, results="hide"}
+
+variance = sort(c(apply(training, 2, function(x) var(x, na.rm = TRUE))))
+variables = tail(variance, 25)
+
+training = training[,c(names(variables), "classe")]
+testing = testing[,c(names(variables), "classe")]
+````
+
+
+## Model building 
+
+#### We will now fit a stochastic gradient boosting algorithm using those 25 variables build a 
+#### prediction model for "classe".
+#### The model with depth = 3 and 150 trees is superior to all others generated this way.
+
+````{r Model, cache=TRUE}
+set.seed(1323)
+modFit = train(classe ~ ., data = training, method = "gbm", verbose = FALSE)
+modFit
+summary(modFit,n.trees=150)
+
+````
+
+#### Importance of variables is shown below.
+#### From all 25 variables used, only one had no influence, indicating that 25 was a good guess.
+
+
+````{r, cache=TRUE}
+varImp(modFit, useModel = TRUE)
+modFit$finalModel
+
+````
+
+## Model performance
+
+### In sample error
+
+#### The model is very accurate, with about 95% accuracy and neglegible variance.Since the test set 
+#### is still sufficientely large, even with only 10% of the observations, I expect the out-of-sample 
+#### error to be similar to the in-sample error.
+
+
+
+````{r inSample, cache=TRUE}
+
+performance <- predict(modFit,training)
+confusionMatrix(performance, training$classe)
+
+````
+
+### Out of sample error
+
+#### The model is accurate as well on the testing set cross validation, with about 94% accuracy and 
+#### a small variance, though much larger than the one found on the training set prediction.
+
+````{r outSample, cache=TRUE}
+
+performance <- predict(modFit,testing)
+confusionMatrix(performance, testing$classe)
+
+
+````
+
+
+## Prediction
+
+#### Whe tested with the pml_train data set, The model got 19/20 answers on the submission, not too 
+#### far from the expected performance.
+
+````{r Prediction, cache=TRUE }
+
+answers = as.character(predict(modFit, pml_test))
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(answers)
+````
